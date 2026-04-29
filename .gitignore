@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Data & Models (we store these on HF, not Git)
+data/
+models/*.bin
+models/*.pt
+models/*.pth
+models/*.onnx
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
