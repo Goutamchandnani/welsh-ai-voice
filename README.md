@@ -16,7 +16,7 @@ A fully local, developer-first Welsh language voice AI pipeline. No cloud lock-i
       ↓
   Welsh Text
       ↓
- [Llama 3.2 3B]    ← Welsh system prompt via Ollama
+ [Llama 3.1 8B]    ← Welsh system prompt via Ollama
       ↓
   Welsh Response
       ↓
@@ -36,7 +36,7 @@ A fully local, developer-first Welsh language voice AI pipeline. No cloud lock-i
 | **Phase 1 — Foundation** | ✅ Complete | 121hrs of Welsh CV 25.0 downloaded & verified |
 | **Phase 2 — Speech-to-Text** | ✅ Complete | Whisper-small fine-tuned: WER 71.7% → 47.0% |
 | **Phase 3 — Text-to-Speech** | ✅ Complete | Kokoro ONNX Welsh TTS (~1s latency) |
-| **Phase 4 — Language Model** | ✅ Complete | Llama 3.2 3B via Ollama, Welsh system prompt |
+| **Phase 4 — Language Model** | ✅ Complete | Llama 3.1 8B via Ollama, Welsh system prompt |
 | **Phase 5 — API Layer** | ✅ Complete | FastAPI REST API with 5 endpoints |
 
 ---
@@ -82,10 +82,10 @@ curl -L -O https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-f
 cd ../..
 ```
 
-**LLM — Install Ollama and pull Llama 3.2:**
+**LLM — Install Ollama and pull Llama 3.1 8B:**
 ```bash
 # Install from https://ollama.com
-ollama pull llama3.2:3b
+ollama pull llama3.1:8b
 ```
 
 ### 5. Start the API
@@ -171,7 +171,7 @@ python3 scripts/pipeline.py --text "Bore da! Beth yw dy enw di?"
 | Component | Technology | Notes |
 |---|---|---|
 | STT | `faster-whisper` + `whisper-small-cy` | CTranslate2, int8 quantisation |
-| LLM | `Llama 3.2 3B` via Ollama | Welsh system prompt |
+| LLM | `Llama 3.1 8B` via Ollama | Welsh system prompt |
 | TTS | `Kokoro ONNX v1.0` | ~1s latency on CPU |
 | API | `FastAPI` + `uvicorn` | REST + multipart audio upload |
 | Training | Kaggle GPU T4 x2 | Hugging Face Trainer |
@@ -181,7 +181,7 @@ python3 scripts/pipeline.py --text "Bore da! Beth yw dy enw di?"
 
 ## Roadmap
 
-- [ ] Upgrade LLM to Llama 3.1 8B for better Welsh fluency
+- [x] Upgrade LLM to Llama 3.1 8B for better Welsh fluency
 - [ ] Replace Kokoro with Coqui XTTS v2 for voice cloning (Python 3.11 venv)
 - [ ] Add WebSocket streaming endpoint for real-time conversation
 - [ ] Integrate with Vapi / LiveKit
