@@ -17,12 +17,8 @@ env/
 .env
 
 # Data & Models (we store these on HF, not Git)
-data/raw/
-data/processed/
-models/*.bin
-models/*.pt
-models/*.pth
-models/*.onnx
+data/
+models/
 
 # OS
 .DS_Store

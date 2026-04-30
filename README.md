@@ -16,8 +16,8 @@
 | Phase | Status | Summary |
 |---|---|---|
 | **Phase 1 — Foundation** | ✅ COMPLETE | 121hrs of Welsh CV 25.0 downloaded & verified. |
-| **Phase 2 — Speech-to-Text** | 🔜 NEXT | Fine-tuning Whisper-small on Welsh. |
-| Phase 3 — Text-to-Speech | 🔜 Pending | Coqui XTTS v2 voice cloning. |
+| **Phase 2 — Speech-to-Text** | ✅ COMPLETE | Fine-tuned Whisper-small on Welsh & optimised to faster-whisper. |
+| Phase 3 — Text-to-Speech | 🔜 NEXT | Coqui XTTS v2 voice cloning. |
 | Phase 4 — Language Model | 🔜 Pending | Llama 3.1 8B with Welsh LoRA. |
 | Phase 5 — API Layer | 🔜 Pending | FastAPI & WebSocket streaming. |
 
@@ -59,5 +59,23 @@
 
 ---
 
-## Next Up: Phase 2 — Speech to Text
-We will move our work to a **Kaggle Notebook** with GPU access to fine-tune `whisper-small` on this 121-hour dataset.
+## Phase 2 — Speech to Text (Completed)
+
+We fine-tuned `openai/whisper-small` on our Welsh dataset.
+- **Baseline WER:** 71.71%
+- **Fine-tuned WER:** 47.09% (after just 500 steps!)
+- **Optimisation:** Converted to `faster-whisper` (CTranslate2) format with `int8` quantization for real-time CPU inference on Apple Silicon. Latency is ~1.2s for a 3s clip.
+
+### 🛠️ Reproduction Steps
+```bash
+# Convert Hugging Face model to faster-whisper format
+ct2-transformers-converter --model Goutam261/whisper-small-cy-demo --output_dir models/faster-whisper-small-cy --copy_files tokenizer.json --quantization float16
+
+# Test the optimized model
+python3 scripts/test_faster_whisper.py
+```
+
+---
+
+## Next Up: Phase 3 — Text-to-Speech
+We will use Coqui XTTS v2 to clone a natural-sounding Welsh voice.
