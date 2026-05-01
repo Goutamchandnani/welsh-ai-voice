@@ -21,7 +21,7 @@ import numpy as np
 import os
 import hashlib
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Security, Depends
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Security, Depends, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from supabase import create_client, Client
@@ -118,6 +118,21 @@ def text_to_wav(text: str, out_path: str, speed: float = 0.9) -> None:
     samples, sr = get_tts().create(text, voice="af_heart", speed=speed, lang="cy")
     sf.write(out_path, samples, sr)
 
+def log_usage(api_key_id: str, endpoint: str, latency: float, status_code: int = 200, audio_duration: float = None):
+    """Logs API usage asynchronously to Supabase."""
+    if not supabase:
+        return
+    try:
+        supabase.table("usage_logs").insert({
+            "api_key_id": api_key_id,
+            "endpoint": endpoint,
+            "latency_seconds": latency,
+            "status_code": status_code,
+            "audio_duration_seconds": audio_duration
+        }).execute()
+    except Exception as e:
+        print(f"Failed to log usage: {e}")
+
 
 # ── Routes ─────────────────────────────────────────────────
 
@@ -137,7 +152,7 @@ def health():
 
 
 @app.post("/transcribe", tags=["STT"])
-async def transcribe(audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
+async def transcribe(background_tasks: BackgroundTasks, audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
     """
     Upload a Welsh audio file and get the transcribed Welsh text back.
 
@@ -148,16 +163,22 @@ async def transcribe(audio: UploadFile = File(...), api_key: dict = Depends(veri
     t0 = time.time()
     segments, info = get_stt().transcribe(audio_path, language="cy", beam_size=5)
     text = " ".join(s.text for s in segments).strip()
+    latency = round(time.time() - t0, 3)
+    # Estimate audio duration based on segment times (rough, but fast)
+    audio_dur = segments[-1].end if segments else 0.0
+    
+    background_tasks.add_task(log_usage, api_key["id"], "/transcribe", latency, 200, audio_dur)
+    
     return {
         "text": text,
         "language": info.language,
         "language_probability": round(info.language_probability, 3),
-        "latency_s": round(time.time() - t0, 3),
+        "latency_s": latency,
     }
 
 
 @app.post("/synthesise", tags=["TTS"])
-async def synthesise(text: str = Form(...), speed: float = Form(0.9), api_key: dict = Depends(verify_api_key)):
+async def synthesise(background_tasks: BackgroundTasks, text: str = Form(...), speed: float = Form(0.9), api_key: dict = Depends(verify_api_key)):
     """
     Convert Welsh text to speech and return the WAV audio file.
 
@@ -167,13 +188,18 @@ async def synthesise(text: str = Form(...), speed: float = Form(0.9), api_key: d
     """
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
+    t0 = time.time()
     out_path = str(OUTPUT_DIR / f"synth_{int(time.time() * 1000)}.wav")
     text_to_wav(text, out_path, speed=speed)
+    latency = round(time.time() - t0, 3)
+    
+    background_tasks.add_task(log_usage, api_key["id"], "/synthesise", latency, 200)
+    
     return FileResponse(out_path, media_type="audio/wav", filename="response.wav")
 
 
 @app.post("/chat", tags=["Pipeline"])
-async def chat(text: str = Form(...), api_key: dict = Depends(verify_api_key)):
+async def chat(background_tasks: BackgroundTasks, text: str = Form(...), api_key: dict = Depends(verify_api_key)):
     """
     Send Welsh text, get a Welsh spoken audio response.
 
@@ -190,17 +216,20 @@ async def chat(text: str = Form(...), api_key: dict = Depends(verify_api_key)):
     out_path = str(OUTPUT_DIR / f"chat_{int(time.time() * 1000)}.wav")
     text_to_wav(llm_response, out_path)
 
+    latency = round(time.time() - t0, 3)
+    background_tasks.add_task(log_usage, api_key["id"], "/chat", latency, 200)
+
     # Return audio + metadata in headers so callers know what was said
     headers = {
         "X-Input-Text":    text,
         "X-LLM-Response":  llm_response,
-        "X-Total-Latency": str(round(time.time() - t0, 3)),
+        "X-Total-Latency": str(latency),
     }
     return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
 
 
 @app.post("/voice", tags=["Pipeline"])
-async def voice(audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
+async def voice(background_tasks: BackgroundTasks, audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
     """
     The full pipeline: upload Welsh audio, receive Welsh spoken response.
 
@@ -223,9 +252,13 @@ async def voice(audio: UploadFile = File(...), api_key: dict = Depends(verify_ap
     out_path = str(OUTPUT_DIR / f"voice_{int(time.time() * 1000)}.wav")
     text_to_wav(llm_response, out_path)
 
+    latency = round(time.time() - t0, 3)
+    audio_dur = segments[-1].end if segments else 0.0
+    background_tasks.add_task(log_usage, api_key["id"], "/voice", latency, 200, audio_dur)
+
     headers = {
         "X-Transcription": transcription,
         "X-LLM-Response":  llm_response,
-        "X-Total-Latency": str(round(time.time() - t0, 3)),
+        "X-Total-Latency": str(latency),
     }
     return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
