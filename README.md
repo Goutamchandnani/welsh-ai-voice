@@ -126,14 +126,17 @@ All endpoints live at `http://localhost:8000`. Full interactive docs at [`/docs`
 | `GET` | `/health` | — | JSON status of all models |
 | `POST` | `/v1/transcribe` | Audio file (MP3/WAV) | JSON with Welsh text |
 | `POST` | `/v1/synthesise` | Welsh text + voice + speed | WAV audio file |
-| `POST` | `/chat` | Welsh text (form) | WAV audio (LLM + TTS) |
-| `POST` | `/voice` | Audio file (MP3/WAV) | WAV audio (full pipeline) |
+| `POST` | `/v1/chat` | Welsh text + voice | WAV audio (LLM + TTS) |
+| `POST` | `/v1/voice` | Audio file + voice | WAV audio (full pipeline) |
 
-### Response Headers (for `/voice` and `/chat`)
+### Response Headers (for `/v1/voice` and `/v1/chat`)
 ```
 X-Transcription: Beth ydy Eisteddfod Genedlaethol Cymru?
 X-LLM-Response:  Mae'r Eisteddfod yn ŵyl ddiwylliannol flynyddol...
-X-Total-Latency: 5.328
+X-STT-Latency:   1.234
+X-LLM-Latency:   2.567
+X-TTS-Latency:   0.891
+X-Total-Latency:  4.692
 ```
 
 ---

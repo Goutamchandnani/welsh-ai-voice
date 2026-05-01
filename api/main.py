@@ -286,67 +286,110 @@ async def synthesise(
         raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
 
 
-@app.post("/chat", tags=["Pipeline"])
-async def chat(background_tasks: BackgroundTasks, text: str = Form(...), api_key: dict = Depends(verify_api_key)):
+@app.post("/v1/chat", tags=["Pipeline"])
+async def chat(
+    background_tasks: BackgroundTasks,
+    text: str = Form(...),
+    voice: str = Form(DEFAULT_VOICE),
+    api_key: dict = Depends(verify_api_key)
+):
     """
     Send Welsh text, get a Welsh spoken audio response.
 
     Pipeline: Welsh text → LLM → TTS → WAV
 
-    - text: Welsh input text
+    - text:  Welsh input text (max 5000 characters)
+    - voice: Voice profile ID (see GET /v1/voices for options)
     - Returns: WAV audio file with the AI's Welsh response
     """
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=400, detail=f"Text exceeds maximum length of {MAX_TEXT_CHARS} characters.")
+    if voice not in AVAILABLE_VOICES:
+        raise HTTPException(status_code=400, detail=f"Invalid voice '{voice}'. Use GET /v1/voices to see available options.")
 
-    t0 = time.time()
-    llm_response = respond(text, verbose=False)
-    out_path = str(OUTPUT_DIR / f"chat_{int(time.time() * 1000)}.wav")
-    text_to_wav(llm_response, out_path)
+    try:
+        # LLM
+        t_llm = time.time()
+        llm_response = respond(text, verbose=False)
+        llm_latency = round(time.time() - t_llm, 3)
 
-    latency = round(time.time() - t0, 3)
-    background_tasks.add_task(log_usage, api_key["id"], "/chat", latency, 200)
+        # TTS
+        t_tts = time.time()
+        out_path = str(OUTPUT_DIR / f"chat_{int(time.time() * 1000)}.wav")
+        text_to_wav(llm_response, out_path, voice=voice)
+        tts_latency = round(time.time() - t_tts, 3)
 
-    # Return audio + metadata in headers so callers know what was said
-    headers = {
-        "X-Input-Text":    text,
-        "X-LLM-Response":  llm_response,
-        "X-Total-Latency": str(latency),
-    }
-    return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
+        total_latency = round(llm_latency + tts_latency, 3)
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/chat", total_latency, 200)
+
+        headers = {
+            "X-Input-Text":    text,
+            "X-LLM-Response":  llm_response,
+            "X-LLM-Latency":   str(llm_latency),
+            "X-TTS-Latency":   str(tts_latency),
+            "X-Total-Latency": str(total_latency),
+        }
+        return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
+    except Exception as e:
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/chat", 0, 500)
+        raise HTTPException(status_code=500, detail=f"Chat pipeline failed: {str(e)}")
 
 
-@app.post("/voice", tags=["Pipeline"])
-async def voice(background_tasks: BackgroundTasks, audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
+@app.post("/v1/voice", tags=["Pipeline"])
+async def voice(
+    background_tasks: BackgroundTasks,
+    audio: UploadFile = File(...),
+    voice: str = Form(DEFAULT_VOICE),
+    api_key: dict = Depends(verify_api_key)
+):
     """
     The full pipeline: upload Welsh audio, receive Welsh spoken response.
 
     Pipeline: Audio → STT → LLM → TTS → WAV
 
     - audio: Welsh audio file (MP3/WAV/OGG)
+    - voice: Voice profile ID (see GET /v1/voices for options)
     - Returns: WAV audio file with the AI's Welsh response
     """
-    audio_path = await save_upload(audio)
-    t0 = time.time()
+    if voice not in AVAILABLE_VOICES:
+        raise HTTPException(status_code=400, detail=f"Invalid voice '{voice}'. Use GET /v1/voices to see available options.")
 
-    # 1. STT
-    segments, _ = get_stt().transcribe(audio_path, language="cy", beam_size=5)
-    transcription = " ".join(s.text for s in segments).strip()
+    try:
+        audio_path = await save_upload(audio)
 
-    # 2. LLM
-    llm_response = respond(transcription, verbose=False)
+        # 1. STT
+        t_stt = time.time()
+        segments, _ = get_stt().transcribe(audio_path, language="cy", beam_size=5)
+        transcription = " ".join(s.text for s in segments).strip()
+        stt_latency = round(time.time() - t_stt, 3)
 
-    # 3. TTS
-    out_path = str(OUTPUT_DIR / f"voice_{int(time.time() * 1000)}.wav")
-    text_to_wav(llm_response, out_path)
+        # 2. LLM
+        t_llm = time.time()
+        llm_response = respond(transcription, verbose=False)
+        llm_latency = round(time.time() - t_llm, 3)
 
-    latency = round(time.time() - t0, 3)
-    audio_dur = segments[-1].end if segments else 0.0
-    background_tasks.add_task(log_usage, api_key["id"], "/voice", latency, 200, audio_dur)
+        # 3. TTS
+        t_tts = time.time()
+        out_path = str(OUTPUT_DIR / f"voice_{int(time.time() * 1000)}.wav")
+        text_to_wav(llm_response, out_path, voice=voice)
+        tts_latency = round(time.time() - t_tts, 3)
 
-    headers = {
-        "X-Transcription": transcription,
-        "X-LLM-Response":  llm_response,
-        "X-Total-Latency": str(latency),
-    }
-    return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
+        total_latency = round(stt_latency + llm_latency + tts_latency, 3)
+        audio_dur = segments[-1].end if segments else 0.0
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/voice", total_latency, 200, audio_dur)
+
+        headers = {
+            "X-Transcription": transcription,
+            "X-LLM-Response":  llm_response,
+            "X-STT-Latency":   str(stt_latency),
+            "X-LLM-Latency":   str(llm_latency),
+            "X-TTS-Latency":   str(tts_latency),
+            "X-Total-Latency": str(total_latency),
+        }
+        return FileResponse(out_path, media_type="audio/wav", filename="response.wav", headers=headers)
+    except Exception as e:
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/voice", 0, 500)
+        raise HTTPException(status_code=500, detail=f"Voice pipeline failed: {str(e)}")
+
