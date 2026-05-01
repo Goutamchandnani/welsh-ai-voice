@@ -160,9 +160,20 @@ async def save_upload(upload: UploadFile) -> str:
         tmp.write(await upload.read())
         return tmp.name
 
-def text_to_wav(text: str, out_path: str, speed: float = 0.9) -> None:
+# Available Welsh voice profiles from Kokoro
+AVAILABLE_VOICES = {
+    "af_heart": "Female — warm and natural (default)",
+    "af_bella": "Female — clear and articulate",
+    "af_sarah": "Female — soft and calm",
+    "am_adam":  "Male — deep and steady",
+    "am_michael": "Male — bright and energetic",
+}
+DEFAULT_VOICE = "af_heart"
+MAX_TEXT_CHARS = 5000
+
+def text_to_wav(text: str, out_path: str, voice: str = DEFAULT_VOICE, speed: float = 0.9) -> None:
     """Synthesise Welsh text and write to WAV."""
-    samples, sr = get_tts().create(text, voice="af_heart", speed=speed, lang="cy")
+    samples, sr = get_tts().create(text, voice=voice, speed=speed, lang="cy")
     sf.write(out_path, samples, sr)
 
 def log_usage(api_key_id: str, endpoint: str, latency: float, status_code: int = 200, audio_duration: float = None):
@@ -236,25 +247,43 @@ async def transcribe(background_tasks: BackgroundTasks, audio: UploadFile = File
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 
-@app.post("/synthesise", tags=["TTS"])
-async def synthesise(background_tasks: BackgroundTasks, text: str = Form(...), speed: float = Form(0.9), api_key: dict = Depends(verify_api_key)):
+@app.post("/v1/synthesise", tags=["TTS"])
+async def synthesise(
+    background_tasks: BackgroundTasks,
+    text: str = Form(...),
+    voice: str = Form(DEFAULT_VOICE),
+    speed: float = Form(0.9),
+    api_key: dict = Depends(verify_api_key)
+):
     """
     Convert Welsh text to speech and return the WAV audio file.
 
-    - text:  Welsh text to synthesise
-    - speed: Speaking speed (0.8 = slower, 1.0 = normal)
+    - text:  Welsh text to synthesise (max 5000 characters)
+    - voice: Voice profile ID (see GET /v1/voices for options)
+    - speed: Speaking speed (0.5 = slow, 1.0 = normal, 1.5 = fast)
     - Returns: WAV audio file
     """
     if not text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
-    t0 = time.time()
-    out_path = str(OUTPUT_DIR / f"synth_{int(time.time() * 1000)}.wav")
-    text_to_wav(text, out_path, speed=speed)
-    latency = round(time.time() - t0, 3)
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=400, detail=f"Text exceeds maximum length of {MAX_TEXT_CHARS} characters.")
+    if voice not in AVAILABLE_VOICES:
+        raise HTTPException(status_code=400, detail=f"Invalid voice '{voice}'. Use GET /v1/voices to see available options.")
+    if not (0.5 <= speed <= 2.0):
+        raise HTTPException(status_code=400, detail="Speed must be between 0.5 and 2.0.")
     
-    background_tasks.add_task(log_usage, api_key["id"], "/synthesise", latency, 200)
-    
-    return FileResponse(out_path, media_type="audio/wav", filename="response.wav")
+    try:
+        t0 = time.time()
+        out_path = str(OUTPUT_DIR / f"synth_{int(time.time() * 1000)}.wav")
+        text_to_wav(text, out_path, voice=voice, speed=speed)
+        latency = round(time.time() - t0, 3)
+        
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/synthesise", latency, 200)
+        
+        return FileResponse(out_path, media_type="audio/wav", filename="response.wav")
+    except Exception as e:
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/synthesise", 0, 500)
+        raise HTTPException(status_code=500, detail=f"Synthesis failed: {str(e)}")
 
 
 @app.post("/chat", tags=["Pipeline"])
