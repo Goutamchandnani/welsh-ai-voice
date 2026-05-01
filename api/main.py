@@ -18,8 +18,13 @@ from pathlib import Path
 
 import soundfile as sf
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+import os
+import hashlib
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Security, Depends
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security.api_key import APIKeyHeader
+from supabase import create_client, Client
 from faster_whisper import WhisperModel
 from kokoro_onnx import Kokoro
 
@@ -33,6 +38,48 @@ KOKORO_MODEL   = "models/kokoro/kokoro-v1.0.onnx"
 KOKORO_VOICES  = "models/kokoro/voices-v1.0.bin"
 OUTPUT_DIR     = Path("data/api_output")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+load_dotenv()
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    supabase = None
+    print("⚠️  Warning: Supabase credentials missing. API Key validation will fail.")
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_api_key(api_key_header: str = Security(api_key_header)):
+    """Verifies the incoming API key against the Supabase database."""
+    if not api_key_header:
+        raise HTTPException(status_code=401, detail="X-API-Key header is missing")
+    
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Auth database is not configured")
+
+    # Hash the incoming key to compare with the stored hash
+    key_hash = hashlib.sha256(api_key_header.encode('utf-8')).hexdigest()
+
+    try:
+        response = supabase.table("api_keys").select("id", "status", "tier").eq("key_hash", key_hash).execute()
+        data = response.data
+        
+        if not data:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        key_data = data[0]
+        if key_data["status"] != "active":
+            raise HTTPException(status_code=401, detail="API Key has been revoked or suspended")
+            
+        return {"id": key_data["id"], "tier": key_data["tier"]}
+        
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Auth error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during authentication")
 
 # ── App Setup ─────────────────────────────────────────────
 app = FastAPI(
@@ -90,7 +137,7 @@ def health():
 
 
 @app.post("/transcribe", tags=["STT"])
-async def transcribe(audio: UploadFile = File(...)):
+async def transcribe(audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
     """
     Upload a Welsh audio file and get the transcribed Welsh text back.
 
@@ -110,7 +157,7 @@ async def transcribe(audio: UploadFile = File(...)):
 
 
 @app.post("/synthesise", tags=["TTS"])
-async def synthesise(text: str = Form(...), speed: float = Form(0.9)):
+async def synthesise(text: str = Form(...), speed: float = Form(0.9), api_key: dict = Depends(verify_api_key)):
     """
     Convert Welsh text to speech and return the WAV audio file.
 
@@ -126,7 +173,7 @@ async def synthesise(text: str = Form(...), speed: float = Form(0.9)):
 
 
 @app.post("/chat", tags=["Pipeline"])
-async def chat(text: str = Form(...)):
+async def chat(text: str = Form(...), api_key: dict = Depends(verify_api_key)):
     """
     Send Welsh text, get a Welsh spoken audio response.
 
@@ -153,7 +200,7 @@ async def chat(text: str = Form(...)):
 
 
 @app.post("/voice", tags=["Pipeline"])
-async def voice(audio: UploadFile = File(...)):
+async def voice(audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
     """
     The full pipeline: upload Welsh audio, receive Welsh spoken response.
 
