@@ -17,10 +17,10 @@ import tempfile
 from pathlib import Path
 
 import soundfile as sf
-import numpy as np
 import os
 import hashlib
 from dotenv import load_dotenv
+from pydantic import BaseModel
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Security, Depends, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -181,6 +181,13 @@ def log_usage(api_key_id: str, endpoint: str, latency: float, status_code: int =
         print(f"Failed to log usage: {e}")
 
 
+# ── Schemas ────────────────────────────────────────────────
+class TranscriptionResponse(BaseModel):
+    text: str
+    language: str
+    language_probability: float
+    latency_s: float
+
 # ── Routes ─────────────────────────────────────────────────
 
 @app.get("/health", tags=["System"])
@@ -198,30 +205,35 @@ def health():
     }
 
 
-@app.post("/transcribe", tags=["STT"])
+@app.post("/v1/transcribe", tags=["STT"], response_model=TranscriptionResponse)
 async def transcribe(background_tasks: BackgroundTasks, audio: UploadFile = File(...), api_key: dict = Depends(verify_api_key)):
     """
     Upload a Welsh audio file and get the transcribed Welsh text back.
 
     - Accepts: MP3, WAV, OGG
-    - Returns: JSON with 'text' and 'latency_s'
+    - Returns: JSON with transcribed text and metadata
     """
-    audio_path = await save_upload(audio)
-    t0 = time.time()
-    segments, info = get_stt().transcribe(audio_path, language="cy", beam_size=5)
-    text = " ".join(s.text for s in segments).strip()
-    latency = round(time.time() - t0, 3)
-    # Estimate audio duration based on segment times (rough, but fast)
-    audio_dur = segments[-1].end if segments else 0.0
-    
-    background_tasks.add_task(log_usage, api_key["id"], "/transcribe", latency, 200, audio_dur)
-    
-    return {
-        "text": text,
-        "language": info.language,
-        "language_probability": round(info.language_probability, 3),
-        "latency_s": latency,
-    }
+    try:
+        audio_path = await save_upload(audio)
+        t0 = time.time()
+        
+        segments, info = get_stt().transcribe(audio_path, language="cy", beam_size=5)
+        text = " ".join(s.text for s in segments).strip()
+        
+        latency = round(time.time() - t0, 3)
+        audio_dur = segments[-1].end if segments else 0.0
+        
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/transcribe", latency, 200, audio_dur)
+        
+        return TranscriptionResponse(
+            text=text,
+            language=info.language,
+            language_probability=round(info.language_probability, 3),
+            latency_s=latency
+        )
+    except Exception as e:
+        background_tasks.add_task(log_usage, api_key["id"], "/v1/transcribe", 0, 500, 0)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
 
 @app.post("/synthesise", tags=["TTS"])
