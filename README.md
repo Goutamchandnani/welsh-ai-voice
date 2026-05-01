@@ -229,3 +229,15 @@ MIT — free to use, modify, and distribute.
 ---
 
 *Built with ❤️ for the Welsh language. Cymru am byth! 🐉*
+
+---
+
+## Administration
+
+### Generating API Keys
+To issue a new API key for a developer, run the generator script:
+```bash
+python3 scripts/generate_key.py --email user@example.com --tier free --env live
+```
+This will output a secure `lc_live_xxxxx` key and store its SHA-256 hash in Supabase. We do not store raw keys.
+
