@@ -25,6 +25,7 @@ from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Security, De
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from supabase import create_client, Client
+from upstash_redis import Redis
 from faster_whisper import WhisperModel
 from kokoro_onnx import Kokoro
 
@@ -48,6 +49,20 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     supabase = None
     print("⚠️  Warning: Supabase credentials missing. API Key validation will fail.")
+
+UPSTASH_REDIS_REST_URL = os.getenv("UPSTASH_REDIS_REST_URL")
+UPSTASH_REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN")
+
+if UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN:
+    redis = Redis(url=UPSTASH_REDIS_REST_URL, token=UPSTASH_REDIS_REST_TOKEN)
+else:
+    redis = None
+    print("⚠️  Warning: Upstash Redis credentials missing. Rate limiting is disabled.")
+
+RATE_LIMITS = {
+    "free": 10,   # requests per minute
+    "pro": 100    # requests per minute
+}
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -73,7 +88,39 @@ async def verify_api_key(api_key_header: str = Security(api_key_header)):
         if key_data["status"] != "active":
             raise HTTPException(status_code=401, detail="API Key has been revoked or suspended")
             
-        return {"id": key_data["id"], "tier": key_data["tier"]}
+        api_key_id = key_data["id"]
+        tier = key_data["tier"]
+        
+        # ── Rate Limiting ─────────────────────────────────────────
+        if redis:
+            # Fixed window rate limit based on current minute
+            current_minute = int(time.time() / 60)
+            redis_key = f"rate_limit:{api_key_id}:{current_minute}"
+            
+            try:
+                # Increment the counter for this minute
+                requests_this_minute = redis.incr(redis_key)
+                
+                # If it's the first request, set the key to expire in 60 seconds
+                if requests_this_minute == 1:
+                    redis.expire(redis_key, 60)
+                    
+                limit = RATE_LIMITS.get(tier, 10)
+                
+                if requests_this_minute > limit:
+                    # Calculate seconds until the next minute starts
+                    retry_after = 60 - (int(time.time()) % 60)
+                    raise HTTPException(
+                        status_code=429, 
+                        detail=f"Rate limit exceeded. Tier '{tier}' is limited to {limit} requests per minute.",
+                        headers={"Retry-After": str(retry_after)}
+                    )
+            except Exception as redis_err:
+                if isinstance(redis_err, HTTPException):
+                    raise redis_err
+                print(f"Redis rate limiting failed (failing open): {redis_err}")
+                
+        return {"id": api_key_id, "tier": tier}
         
     except Exception as e:
         if isinstance(e, HTTPException):
