@@ -199,6 +199,14 @@ class TranscriptionResponse(BaseModel):
     language_probability: float
     latency_s: float
 
+class VoiceItem(BaseModel):
+    id: str
+    description: str
+
+class VoiceListResponse(BaseModel):
+    voices: list[VoiceItem]
+    default_voice: str
+
 # ── Routes ─────────────────────────────────────────────────
 
 @app.get("/health", tags=["System"])
@@ -214,6 +222,15 @@ def health():
         },
         "version": "0.1.0",
     }
+
+
+@app.get("/v1/voices", tags=["TTS"], response_model=VoiceListResponse)
+def get_voices():
+    """
+    Returns the list of available Welsh voice profiles for TTS endpoints.
+    """
+    voice_list = [VoiceItem(id=v_id, description=desc) for v_id, desc in AVAILABLE_VOICES.items()]
+    return VoiceListResponse(voices=voice_list, default_voice=DEFAULT_VOICE)
 
 
 @app.post("/v1/transcribe", tags=["STT"], response_model=TranscriptionResponse)

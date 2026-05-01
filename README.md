@@ -124,6 +124,7 @@ All endpoints live at `http://localhost:8000`. Full interactive docs at [`/docs`
 | Method | Endpoint | Input | Output |
 |---|---|---|---|
 | `GET` | `/health` | — | JSON status of all models |
+| `GET` | `/v1/voices` | — | JSON list of available TTS voices |
 | `POST` | `/v1/transcribe` | Audio file (MP3/WAV) | JSON with Welsh text |
 | `POST` | `/v1/synthesise` | Welsh text + voice + speed | WAV audio file |
 | `POST` | `/v1/chat` | Welsh text + voice | WAV audio (LLM + TTS) |
