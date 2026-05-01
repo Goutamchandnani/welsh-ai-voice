@@ -104,11 +104,13 @@ curl http://localhost:8000/health
 
 # Text → Welsh speech (TTS only)
 curl -X POST http://localhost:8000/synthesise \
+  -H "X-API-Key: YOUR_API_KEY_HERE" \
   -F "text=Bore da! Sut mae pethau heddiw?" \
   --output response.wav
 
 # Welsh audio → Welsh spoken response (full pipeline)
 curl -X POST http://localhost:8000/voice \
+  -H "X-API-Key: YOUR_API_KEY_HERE" \
   -F "audio=@your_clip.mp3;type=audio/mpeg" \
   --output response.wav
 ```
@@ -122,7 +124,7 @@ All endpoints live at `http://localhost:8000`. Full interactive docs at [`/docs`
 | Method | Endpoint | Input | Output |
 |---|---|---|---|
 | `GET` | `/health` | — | JSON status of all models |
-| `POST` | `/transcribe` | Audio file (MP3/WAV) | JSON with Welsh text |
+| `POST` | `/v1/transcribe` | Audio file (MP3/WAV) | JSON with Welsh text |
 | `POST` | `/synthesise` | Welsh text (form) | WAV audio file |
 | `POST` | `/chat` | Welsh text (form) | WAV audio (LLM + TTS) |
 | `POST` | `/voice` | Audio file (MP3/WAV) | WAV audio (full pipeline) |
