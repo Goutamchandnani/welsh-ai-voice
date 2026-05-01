@@ -209,18 +209,19 @@ class VoiceListResponse(BaseModel):
 
 # ── Routes ─────────────────────────────────────────────────
 
-@app.get("/health", tags=["System"])
+@app.get("/v1/health", tags=["System"])
+@app.get("/health", tags=["System"])  # Legacy alias — kept for backwards compatibility
 def health():
     """Returns the current status of all pipeline components."""
     return {
         "status": "ok",
         "pipeline": "STT → LLM → TTS",
         "models": {
-            "stt": "whisper-small-cy (faster-whisper)",
-            "llm": "llama3.2:3b (Ollama)",
+            "stt": "whisper-small-cy (faster-whisper, int8)",
+            "llm": "llama3.1:8b (Ollama)",
             "tts": "kokoro-v1.0 (ONNX)",
         },
-        "version": "0.1.0",
+        "version": "1.0.0",
     }
 
 

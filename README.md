@@ -38,6 +38,9 @@ A fully local, developer-first Welsh language voice AI pipeline. No cloud lock-i
 | **Phase 3 — Text-to-Speech** | ✅ Complete | Kokoro ONNX Welsh TTS (~1s latency) |
 | **Phase 4 — Language Model** | ✅ Complete | Llama 3.1 8B via Ollama, Welsh system prompt |
 | **Phase 5 — API Layer** | ✅ Complete | FastAPI REST API with 5 endpoints |
+| **Phase A — Authentication** | ✅ Complete | Supabase API keys (SHA-256 hashed), usage logging |
+| **Phase B — Rate Limiting** | ✅ Complete | Upstash Redis, 10 req/min (free), 100 req/min (pro) |
+| **Phase C — Production Endpoints** | ✅ Complete | All endpoints versioned under `/v1/`, Pydantic models, per-stage latency |
 
 ---
 
@@ -99,8 +102,8 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 ### 6. Test the pipeline
 ```bash
-# Health check
-curl http://localhost:8000/health
+# Health check (no API key needed)
+curl http://localhost:8000/v1/health
 
 # Text → Welsh speech (TTS only)
 curl -X POST http://localhost:8000/synthesise \
@@ -123,7 +126,7 @@ All endpoints live at `http://localhost:8000`. Full interactive docs at [`/docs`
 
 | Method | Endpoint | Input | Output |
 |---|---|---|---|
-| `GET` | `/health` | — | JSON status of all models |
+| `GET` | `/v1/health` | — | JSON status of all models |
 | `GET` | `/v1/voices` | — | JSON list of available TTS voices |
 | `POST` | `/v1/transcribe` | Audio file (MP3/WAV) | JSON with Welsh text |
 | `POST` | `/v1/synthesise` | Welsh text + voice + speed | WAV audio file |
